@@ -1,0 +1,53 @@
+{
+  "summary": "Backend pytest suite executed against external preview URL. 21/24 tests passing. 3 real backend bugs found: (1) GET /api/ root endpoint returns 404 because @api.get('/') is declared AFTER app.include_router(api), so it is never registered. (2) POST /api/products returns 500 with `'ObjectId' object is not iterable` because motor's insert_one() mutates the dict by adding `_id` (BSON ObjectId) and the endpoint returns that mutated dict directly. (3) GET /api/payments/status/{session_id} returns 500 because the Emergent Stripe proxy (sk_test_emergent) responds with `resource_missing - No such checkout.session` immediately after the session is created successfully — likely an Emergent Stripe integration proxy issue, but the endpoint should also handle it gracefully (return 4xx/expose the status) instead of bubbling a 500. All other auth/products/cart/orders/checkout-create/chat endpoints work correctly. Latvian GPT-5.2 chat reply confirmed working.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/products", "issue": "500 'ObjectId object is not iterable'. After `await db.products.insert_one(doc)`, motor injects `_id` (ObjectId) into the dict; the endpoint then `return doc`, which FastAPI cannot serialize. Fix: pop `_id` before returning, or return a fresh dict from `p.model_dump()`/use `{**doc, '_id': None}` style without mutating, or call `find_one` again with projection.", "priority": "HIGH"},
+      {"endpoint": "GET /api/payments/status/{session_id}", "issue": "Returns 500 because Emergent Stripe proxy returns 404 'resource_missing' on the just-created session. Backend should catch the StripeError gracefully and return an actionable response (e.g., 502/404 with payment_status='pending'). Also flags a likely Emergent Stripe integration issue: POST create returns 200 with session_id, but immediate GET on the same id from the proxy is 404.", "priority": "HIGH"},
+      {"endpoint": "GET /api/", "issue": "404. `@api.get('/')` is declared on line 664 — AFTER `app.include_router(api)` on line 649 — so the route is never registered on the app. Move route declaration above include_router, or call include_router after all routes are defined.", "priority": "MEDIUM"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Always responds 200 even for new user creation; REST convention would be 201. Not breaking but worth aligning with PRD."},
+      {"endpoint": "POST /api/auth/register", "issue": "No rate limiting / brute-force lockout on /auth/login. Playbook recommends lockout after 5 failed attempts."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix POST /api/products: do not return the dict mutated by motor; pop '_id' or rebuild response from p.model_dump().",
+    "Fix GET /api/ root: move `@api.get('/')` declaration above `app.include_router(api)`.",
+    "Investigate Stripe payment status 500: wrap stripe_checkout.get_checkout_status in proper error handling and verify why the Emergent Stripe proxy returns 404 on the freshly created session_id (could be account isolation between create and read calls).",
+    "(Optional) Add brute-force lockout on /auth/login and use 201 on /auth/register."
+  ],
+  "critical_code_review_comments": [
+    "server.py is a single ~660 line file mixing auth, products, cart, orders, payments, chat, seeding, CORS — should be split into routers/services for maintainability.",
+    "`app.include_router(api)` is called BEFORE the final `@api.get('/')` is declared, causing that route to be silently dropped — anti-pattern, register all routes first.",
+    "`POST /api/products` returns the dict that motor mutated with `_id`; this is an MongoDB ObjectId leak risk pattern. Verify all other endpoints that return raw insert dicts.",
+    "CORS `allow_origins` uses '*' fallback while `allow_credentials=True` — browsers reject this combination; ensure FRONTEND_URL is always set in env.",
+    "No input validation on `category` in ProductCreate — accepts any string. Should restrict to {apgerbs, elektronika, smarzas}.",
+    "Cart pricing is computed server-side (good), but no stock decrement / overselling protection during checkout.",
+    "Payment status endpoint does not require auth — anyone with a session_id can poll status. Consider gating to the order owner.",
+    "JWT_SECRET stored in committed .env; ensure rotation in production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "87.5% (21/24)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@veikals.lv / Admin123! (admin), dynamically created TEST_*@example.com customers.",
+  "seed_data_creation": "Used existing seeded products (6). Created ephemeral TEST_* users via /api/auth/register; created TEST_prod product (cleaned up in same test via DELETE).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/backend_test.py covers full API surface. After main agent fixes the 3 issues (root route ordering, product create ObjectId leak, payment status 500), re-run: `pytest /app/backend/tests/backend_test.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. Auth uses cookies + Authorization Bearer; tests use Bearer extracted from cookie. Emergent Stripe sandbox quirk: create-session works but status-check returns 404 from proxy — main agent should investigate emergentintegrations.payments.stripe.checkout flow.",
+  "rca of the issue": {
+    "products_create_500": "motor.insert_one mutates passed dict to add _id (ObjectId). Code does `await db.products.insert_one(doc); return doc` — FastAPI's jsonable_encoder cannot serialize bson.ObjectId, raising 500. Repro: login as admin, POST /api/products with valid payload. Fix: `doc.pop('_id', None)` before return, OR `return p.model_dump(mode='json')`.",
+    "root_404": "`app.include_router(api)` runs at module load; routes added to the router AFTER that include call are not propagated to the app. The `@api.get('/')` decorator on line 664 runs after line 649's include_router. Fix: move include_router below all route declarations.",
+    "payment_status_500": "Stripe proxy (https://integrations.emergentagent.com/stripe/v1/) returns POST 200 with session_id=cs_test_... then GET on /checkout/sessions/{same_id} returns 404 'resource_missing'. Backend re-raises as 500. Either (a) emergentintegrations proxy isolation bug, or (b) session_id format mismatch. Backend should at minimum wrap and return a controlled response."
+  }
+}
