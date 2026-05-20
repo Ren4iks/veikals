@@ -1,39 +1,107 @@
-body {
-  font-family: Arial;
-  margin: 0;
-  text-align: center;
-  background: #f4f4f4;
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
 }
 
-header {
-  background: black;
-  color: white;
-  padding: 15px;
+body{
+background:#070707;
+color:#d4af37;
+font-family:Arial;
 }
 
-.logo {
-  font-size: 20px;
-  font-weight: bold;
+header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+
+padding:20px;
+
+background:#111;
+
+border-bottom:2px solid #d4af37;
 }
 
-.products {
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-  flex-wrap: wrap;
+.logo{
+font-size:28px;
+font-weight:bold;
+letter-spacing:3px;
 }
 
-.card {
-  background: white;
-  padding: 15px;
-  width: 150px;
-  border-radius: 10px;
+nav{
+display:flex;
+gap:20px;
 }
 
-button {
-  padding: 8px;
-  background: black;
-  color: white;
-  border: none;
-  cursor: pointer;
+nav a{
+color:#d4af37;
+text-decoration:none;
+}
+
+.hero{
+text-align:center;
+
+padding:80px 20px;
+}
+
+.hero h1{
+font-size:42px;
+
+margin-bottom:20px;
+}
+
+.hero p{
+font-size:18px;
+}
+
+.products{
+display:flex;
+
+gap:20px;
+
+justify-content:center;
+
+flex-wrap:wrap;
+
+padding:40px;
+}
+
+.card{
+
+background:#151515;
+
+width:250px;
+
+padding:20px;
+
+border-radius:15px;
+
+border:1px solid #d4af37;
+
+text-align:center;
+}
+
+.card h2{
+margin-bottom:15px;
+}
+
+.card p{
+margin-bottom:15px;
+}
+
+button{
+
+background:#d4af37;
+
+color:black;
+
+border:none;
+
+padding:12px;
+
+width:100%;
+
+border-radius:10px;
+
+font-weight:bold;
 }
