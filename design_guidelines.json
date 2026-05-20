@@ -1,0 +1,93 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "brand_identity": {
+    "name": "Veikals",
+    "vibe": "Authority, Clarity, Truth, Premium E-commerce",
+    "design_principle": "Color is Function Only. High contrast, minimalist product focus. Asymmetry creates tension."
+  },
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk",
+      "style_classes": "font-black tracking-tighter"
+    },
+    "body": {
+      "family": "Satoshi",
+      "style_classes": "font-normal leading-relaxed tracking-normal"
+    },
+    "labels": {
+      "style_classes": "uppercase text-xs tracking-[0.2em] font-medium"
+    },
+    "rules": "Never use Inter for headings. Use fluid scaling text-5xl to text-6xl+ for main hero."
+  },
+  "colors": {
+    "primary_background": "#FFFFFF",
+    "secondary_background": "#F5F5F5",
+    "text_primary": "#0A0A0A",
+    "text_secondary": "#525252",
+    "accent_primary": "#0A0A0A",
+    "accent_danger": "#FF2B2B",
+    "accent_blue": "#0055FF",
+    "border": "rgba(10, 10, 10, 0.1)"
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing Philosophy. Use 2-3x more spacing (p-8, p-12). Optical alignment over geometric.",
+    "bento_grid": "Use Mode A 'Tetris Grid' for Marketing/Hero. Wide gap-8 to gap-12. Asymmetry and negative space are key.",
+    "product_grid": "Strict grid hierarchy. Product is hero. High-contrast 1px solid strokes for borders if needed, or pure borderless images with text underneath. Do not use generic card wrappers for products."
+  },
+  "surface_strategies": {
+    "header": "Crystal Glass - bg-white/70 backdrop-blur-xl backdrop-saturate-150 border-b border-black/10.",
+    "cards": "Flat background, 1px subtle border, no shadow. Hover: -translate-y-1, shadow-lg, border-black/20.",
+    "buttons": "Sharp corners or subtle 2px radius. High contrast black bg, white text. Hover: lighter hue (e.g. hover:bg-neutral-800 hover:text-white).",
+    "modals": "Pure HTML/Tailwind styling overriding default Shadcn dialog. Solid #FFFFFF with sharp 1px border-black/10."
+  },
+  "component_guidelines": {
+    "hero_section": "Big headline, 1-2 line value statement, 1 primary CTA, minimal text. Use Hero image in background with bg-white/30 overlay to ensure text contrast, or a split asymmetrical layout.",
+    "chatbot_widget": "Persistent bottom-right floating launcher. MUST use labelled button (e.g., 'Ask AI' or 'Need help?'), not just an icon. Contextual greeting (e.g., 'Hi! I can help you find products or track orders.'). Provide 2-3 quick replies first. Keep bot messages short and chunked.",
+    "product_cards": "Image dominant (aspect-square or 3:4). Brief description, price, add to cart button below. No heavy card boxes - let the image breathe.",
+    "navigation": "Clear top navigation, visible on desktop, no hamburger on desktop.",
+    "forms_and_inputs": "Use Shadcn customized components. Hard sharp borders (rounded-none or max 4px). Always explicit hover/focus states (focus:ring-2 focus:ring-black)."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "instructions": "Use for dense navigation, UI adornments, and minimalist cart/user actions. Duotone weight."
+  },
+  "media": {
+    "hero_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/a74d4ba8-ecab-48b2-9ede-e8e8a4e9204f/images/2617313151f6261e298f6200438ab7563a2f5a8d57771124c1e7f47e2a36efe3.png",
+      "description": "Abstract luxury soft gradient and sharp glass shapes light theme."
+    },
+    "iphone_17_orange": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/a74d4ba8-ecab-48b2-9ede-e8e8a4e9204f/images/cfab1305e39fbd5f94522fe452ea5359b6bf07da8a93b018636a484544e4602e.png",
+      "description": "iPhone 17 Pro Max Metallic Orange"
+    },
+    "iphone_17_blue": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/a74d4ba8-ecab-48b2-9ede-e8e8a4e9204f/images/7fb36e33cec6a2ffc74fba30aaf36d46519e620c754366a6c1f6caec94627b86.png",
+      "description": "iPhone 17 Pro Max Metallic Blue"
+    },
+    "perfume_product_1": {
+      "url": "https://images.unsplash.com/photo-1770301410072-f6ef6dad65b2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwyfHxwcmVtaXVtJTIwcGVyZnVtZSUyMGJvdHRsZXxlbnwwfHx8fDE3NzkzMDgxMTN8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Gold premium perfume bottle"
+    },
+    "perfume_product_2": {
+      "url": "https://images.pexels.com/photos/36834156/pexels-photo-36834156.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Luxury men's perfume bottle on rustic wood"
+    },
+    "clothing_hoodie_1": {
+      "url": "https://images.unsplash.com/photo-1590759483822-b2fee5aa6bd3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYmxhbmslMjBob29kaWUlMjBtb2RlbHxlbnwwfHx8fDE3NzkzMDgxMTN8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist black hoodie"
+    },
+    "clothing_hoodie_2": {
+      "url": "https://images.pexels.com/photos/8217544/pexels-photo-8217544.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Minimalist white hoodie blank space"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use raw HTML/Tailwind for marketing layouts (Hero, Bento Grids) rather than generic Shadcn wrapper components.",
+    "Use Shadcn UI for logical components (Dropdowns, Tabs, Select, Dialogs) but heavily customize spacings and remove default rounded edges (use rounded-none or rounded-sm).",
+    "Ensure products (clothing, iPhone 17 Pro Max, perfumes) map directly to images provided in the media object. NEVER use placeholders.",
+    "All interactive elements MUST include a 'data-testid' attribute (e.g. data-testid='add-to-cart-button').",
+    "Execute `yarn add @phosphor-icons/react` for the icon library.",
+    "Ensure the floating chatbot widget is initialized on page load, remains in bottom-right, and prompts users contextually with clear visual hierarchy."
+  ]
+}
