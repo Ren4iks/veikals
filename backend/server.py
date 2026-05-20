@@ -258,6 +258,7 @@ async def create_product(body: ProductCreate, user: dict = Depends(require_admin
     doc = p.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
     await db.products.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 @api.put("/products/{product_id}")
@@ -448,7 +449,16 @@ async def payment_status(session_id: str, request: Request):
     try:
         s: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
     except Exception as e:
-        raise HTTPException(500, f"Maksājuma statusa pārbaude neizdevās: {e}")
+        # Gracefully return pending status when Stripe proxy can't read the session yet
+        logger.warning("Stripe status check failed for %s: %s", session_id, e)
+        existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        return {
+            "status": existing.get("status", "open") if existing else "unknown",
+            "payment_status": existing.get("payment_status", "pending") if existing else "pending",
+            "amount_total": int(round((existing.get("amount", 0) * 100))) if existing else 0,
+            "currency": existing.get("currency", "eur") if existing else "eur",
+            "error": "Statusa pārbaude pagaidām nav pieejama",
+        }
 
     # Update transaction if not already paid
     existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
@@ -645,7 +655,11 @@ async def startup():
 async def shutdown():
     client.close()
 
-# Register router
+@api.get("/")
+async def root():
+    return {"ok": True, "service": "veikals-api"}
+
+# Register router (AFTER all routes are declared)
 app.include_router(api)
 
 # CORS
@@ -659,8 +673,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@api.get("/")
-async def root():
-    return {"ok": True, "service": "veikals-api"}
