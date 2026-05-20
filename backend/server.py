@@ -28,6 +28,12 @@ from emergentintegrations.payments.stripe.checkout import (
 from notifications import (
     send_telegram, send_whatsapp, channel_status, format_order_message, _get_settings as _notif_settings
 )
+from marketing import (
+    post_telegram as mk_post_telegram,
+    post_facebook as mk_post_facebook,
+    post_instagram as mk_post_instagram,
+    channel_status as mk_channel_status,
+)
 
 # ----- DB -----
 mongo_url = os.environ['MONGO_URL']
@@ -407,6 +413,28 @@ async def list_orders(user: dict = Depends(get_current_user)):
         orders = await db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return orders
 
+@api.get("/orders/track/{order_id}")
+async def track_order(order_id: str, email: Optional[str] = None):
+    """Public order tracking. Requires both order_id + email to prevent enumeration."""
+    if not email:
+        raise HTTPException(400, "E-pasts ir obligāts")
+    order = await db.orders.find_one(
+        {"id": order_id, "user_email": email.lower()},
+        {"_id": 0, "user_id": 0, "session_id": 0},
+    )
+    if not order:
+        raise HTTPException(404, "Pasūtījums nav atrasts. Pārbaudi pasūtījuma ID un e-pastu.")
+    # Build timeline
+    statuses = ["pending", "paid", "shipped", "delivered"]
+    current_idx = statuses.index(order["status"]) if order["status"] in statuses else 0
+    if order["status"] == "cancelled":
+        current_idx = -1
+    return {
+        **order,
+        "timeline": [{"key": s, "reached": i <= current_idx, "current": i == current_idx} for i, s in enumerate(statuses)],
+    }
+
+
 @api.put("/orders/{order_id}/status")
 async def update_order_status(order_id: str, body: Dict[str, str], user: dict = Depends(require_admin)):
     new_status = body.get("status")
@@ -547,10 +575,33 @@ class NotificationSettings(BaseModel):
     whatsapp_to_default: Optional[str] = None
     enabled_telegram: Optional[bool] = None
     enabled_whatsapp: Optional[bool] = None
+    # Marketing / social
+    fb_page_id: Optional[str] = None
+    fb_page_access_token: Optional[str] = None
+    ig_user_id: Optional[str] = None
+    ig_access_token: Optional[str] = None
+    telegram_channel_id: Optional[str] = None
 
 class TestNotificationRequest(BaseModel):
     channel: str  # "telegram" | "whatsapp" | "both"
     message: Optional[str] = "🧪 Tests no Veikals administrēšanas paneļa. Sistēma darbojas."
+
+class Campaign(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    caption: str
+    image_url: Optional[str] = None
+    channels: List[str]
+    status: str = "draft"
+    results: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    sent_at: Optional[str] = None
+
+class CampaignCreate(BaseModel):
+    title: str
+    caption: str
+    image_url: Optional[str] = None
+    channels: List[str] = Field(default_factory=lambda: ["telegram"])
 
 @api.get("/notifications/status")
 async def notifications_status(user: dict = Depends(require_admin)):
@@ -559,7 +610,6 @@ async def notifications_status(user: dict = Depends(require_admin)):
 @api.get("/notifications/settings")
 async def notifications_get(user: dict = Depends(require_admin)):
     doc = await db.notification_settings.find_one({"id": "global"}, {"_id": 0}) or {}
-    # Mask secrets when returning (show only last 4 chars)
     def mask(v: str) -> str:
         if not v:
             return ""
@@ -567,12 +617,18 @@ async def notifications_get(user: dict = Depends(require_admin)):
     return {
         "telegram_bot_token_masked": mask(doc.get("telegram_bot_token", "")),
         "telegram_chat_id": doc.get("telegram_chat_id", ""),
+        "telegram_channel_id": doc.get("telegram_channel_id", ""),
         "twilio_account_sid_masked": mask(doc.get("twilio_account_sid", "")),
         "twilio_auth_token_masked": mask(doc.get("twilio_auth_token", "")),
         "twilio_whatsapp_from": doc.get("twilio_whatsapp_from", os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")),
         "whatsapp_to_default": doc.get("whatsapp_to_default", os.environ.get("WHATSAPP_TO_DEFAULT", "")),
         "enabled_telegram": doc.get("enabled_telegram", True),
         "enabled_whatsapp": doc.get("enabled_whatsapp", True),
+        # Meta
+        "fb_page_id": doc.get("fb_page_id", ""),
+        "fb_page_access_token_masked": mask(doc.get("fb_page_access_token", "")),
+        "ig_user_id": doc.get("ig_user_id", ""),
+        "ig_access_token_masked": mask(doc.get("ig_access_token", "")),
     }
 
 @api.put("/notifications/settings")
@@ -602,6 +658,61 @@ async def notifications_test(body: TestNotificationRequest, user: dict = Depends
 async def notifications_log(user: dict = Depends(require_admin)):
     items = await db.supplier_notifications.find({}, {"_id": 0}).sort("sent_at", -1).to_list(100)
     return items
+
+# ============ MARKETING CAMPAIGNS ============
+
+@api.get("/marketing/channels")
+async def marketing_channels(user: dict = Depends(require_admin)):
+    return await mk_channel_status(db)
+
+@api.get("/marketing/campaigns")
+async def list_campaigns(user: dict = Depends(require_admin)):
+    items = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+@api.post("/marketing/campaigns")
+async def create_campaign(body: CampaignCreate, user: dict = Depends(require_admin)):
+    valid_channels = {"telegram", "facebook", "instagram"}
+    channels = [c for c in body.channels if c in valid_channels]
+    if not channels:
+        raise HTTPException(400, "Norādi vismaz vienu kanālu")
+    c = Campaign(title=body.title, caption=body.caption, image_url=body.image_url, channels=channels)
+    doc = c.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.campaigns.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.post("/marketing/campaigns/{cid}/send")
+async def send_campaign(cid: str, user: dict = Depends(require_admin)):
+    c = await db.campaigns.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Kampaņa nav atrasta")
+    results: Dict[str, Any] = {}
+    for ch in c.get("channels", []):
+        if ch == "telegram":
+            results["telegram"] = await mk_post_telegram(db, c["caption"], c.get("image_url"))
+        elif ch == "facebook":
+            results["facebook"] = await mk_post_facebook(db, c["caption"], c.get("image_url"))
+        elif ch == "instagram":
+            results["instagram"] = await mk_post_instagram(db, c["caption"], c.get("image_url"))
+    any_sent = any(r.get("sent") for r in results.values())
+    await db.campaigns.update_one(
+        {"id": cid},
+        {"$set": {
+            "results": results,
+            "status": "sent" if any_sent else "failed",
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"results": results, "any_sent": any_sent}
+
+@api.delete("/marketing/campaigns/{cid}")
+async def delete_campaign(cid: str, user: dict = Depends(require_admin)):
+    res = await db.campaigns.delete_one({"id": cid})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Nav atrasts")
+    return {"ok": True}
 
 # ============ PAYMENTS (Stripe) ============
 
@@ -938,6 +1049,115 @@ SEED_PRODUCTS = [
         "supplier_name": "Riga Luxury Fragrances",
         "supplier_email": "orders@rigalux.example.com",
     },
+    # ====== EXPANDED CATALOG ======
+    {
+        "name": "MacBook Pro 16\" M4 Max",
+        "description": "MacBook Pro ar M4 Max čipu, 32GB RAM, 1TB SSD. Liquid Retina XDR displejs. Pro veiktspēja jebkurai darba slodzei.",
+        "price": 3499.00, "category": "elektronika",
+        "image_url": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=900&q=80",
+        "stock": 5, "variant": "Space Black", "featured": True,
+        "brand": "Apple", "supplier_name": "Apple Authorized Distributor EU",
+        "supplier_email": "fulfillment@apple-eu.example.com",
+    },
+    {
+        "name": "AirPods Pro 3",
+        "description": "Trešās paaudzes AirPods Pro ar uzlabotu Active Noise Cancellation un Adaptive Audio. MagSafe lādētājs.",
+        "price": 279.00, "category": "elektronika",
+        "image_url": "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?auto=format&fit=crop&w=900&q=80",
+        "stock": 30, "variant": "White", "featured": True,
+        "brand": "Apple", "supplier_name": "Apple Authorized Distributor EU",
+        "supplier_email": "fulfillment@apple-eu.example.com",
+    },
+    {
+        "name": "Apple Watch Ultra 3",
+        "description": "Apple Watch Ultra 3 ar Titanium korpusu. GPS + Cellular. 48mm. Ekstrēms ekspedīciju pulkstenis.",
+        "price": 899.00, "category": "elektronika",
+        "image_url": "https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=900&q=80",
+        "stock": 10, "variant": "Natural Titanium", "featured": False,
+        "brand": "Apple", "supplier_name": "Apple Authorized Distributor EU",
+        "supplier_email": "fulfillment@apple-eu.example.com",
+    },
+    {
+        "name": "Sony WH-1000XM6 Bezvadu Austiņas",
+        "description": "Premium aktīvās trokšņu slāpēšanas austiņas. 40h baterija. Hi-Res audio.",
+        "price": 399.00, "category": "elektronika",
+        "image_url": "https://images.unsplash.com/photo-1545127398-14699f92334b?auto=format&fit=crop&w=900&q=80",
+        "stock": 18, "variant": "Midnight Black", "featured": False,
+        "brand": "Sony", "supplier_name": "Sony Baltic Distribution",
+        "supplier_email": "orders@sony-baltic.example.com",
+    },
+    {
+        "name": "Oversized T-krekls — Balts",
+        "description": "Mīksta, smaga kokvilna 240gsm. Oversized fit. Minimālistisks dizains bez logo.",
+        "price": 22.00, "category": "apgerbs",
+        "image_url": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
+        "stock": 40, "variant": "White", "featured": True,
+        "brand": "Veikals Essentials", "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
+    },
+    {
+        "name": "Crewneck Sweater — Pelēks",
+        "description": "Klasiskais crewneck džemperis. 80% kokvilna / 20% poliesteris. Mīksts iekšpusē.",
+        "price": 45.00, "category": "apgerbs",
+        "image_url": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&w=900&q=80",
+        "stock": 22, "variant": "Heather Grey", "featured": False,
+        "brand": "Veikals Essentials", "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
+    },
+    {
+        "name": "Cargo Bikses — Khaki",
+        "description": "Tehniskas cargo bikses ar vairākām kabatām. Relaxed fit. Izturīgs audums.",
+        "price": 65.00, "category": "apgerbs",
+        "image_url": "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&w=900&q=80",
+        "stock": 16, "variant": "Khaki", "featured": False,
+        "brand": "Veikals Essentials", "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
+    },
+    {
+        "name": "Denim Jaka — Indigo",
+        "description": "Klasiska denim jaka. 100% kokvilna. Vintage indigo krāsojums.",
+        "price": 79.00, "category": "apgerbs",
+        "image_url": "https://images.unsplash.com/photo-1543076447-215ad9ba6923?auto=format&fit=crop&w=900&q=80",
+        "stock": 14, "variant": "Indigo", "featured": True,
+        "brand": "Veikals Essentials", "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
+    },
+    {
+        "name": "Smaržas — Rosé Velvet",
+        "description": "Sieviešu Eau de Parfum ar rožu, peoniju un magnolijas notīm. 50 ml.",
+        "price": 75.00, "category": "smarzas",
+        "image_url": "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=80",
+        "stock": 20, "variant": None, "featured": False,
+        "brand": "Veikals Maison", "supplier_name": "Riga Luxury Fragrances",
+        "supplier_email": "orders@rigalux.example.com",
+    },
+    {
+        "name": "Smaržas — Ocean Salt",
+        "description": "Svaigs unisex aromāts ar jūras sāli, bergamoti un cedru. 100 ml.",
+        "price": 95.00, "category": "smarzas",
+        "image_url": "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=900&q=80",
+        "stock": 17, "variant": None, "featured": True,
+        "brand": "Veikals Maison", "supplier_name": "Riga Luxury Fragrances",
+        "supplier_email": "orders@rigalux.example.com",
+    },
+    {
+        "name": "Smaržas — Tobacco Vanille",
+        "description": "Bagāts, silts aromāts ar tabakas, vaniles un sausu augļu notīm. 100 ml.",
+        "price": 145.00, "category": "smarzas",
+        "image_url": "https://images.unsplash.com/photo-1615634260167-c8cdede054de?auto=format&fit=crop&w=900&q=80",
+        "stock": 9, "variant": None, "featured": False,
+        "brand": "Noir", "supplier_name": "Riga Luxury Fragrances",
+        "supplier_email": "orders@rigalux.example.com",
+    },
+    {
+        "name": "Ādas Maks — Melns",
+        "description": "Premium ādas maks ar RFID aizsardzību. 8 kartes + naudaszīmju nodalījums.",
+        "price": 89.00, "category": "apgerbs",
+        "image_url": "https://images.unsplash.com/photo-1627123424574-724758594e93?auto=format&fit=crop&w=900&q=80",
+        "stock": 25, "variant": "Black", "featured": False,
+        "brand": "Veikals Leather", "supplier_name": "Baltic Leather Goods",
+        "supplier_email": "orders@balticleather.example.com",
+    },
 ]
 
 SEED_DISCOUNTS = [
@@ -1010,16 +1230,27 @@ async def startup():
             await db.products.insert_one(doc)
         logger.info("Seeded %d products", len(SEED_PRODUCTS))
     else:
-        # Backfill brand/supplier on existing seeded products (idempotent)
+        # Backfill brand/supplier on existing seeded products + insert any missing new ones
+        inserted = 0
         for sp in SEED_PRODUCTS:
-            await db.products.update_one(
-                {"name": sp["name"]},
-                {"$set": {
-                    "brand": sp.get("brand"),
-                    "supplier_name": sp.get("supplier_name"),
-                    "supplier_email": sp.get("supplier_email"),
-                }},
-            )
+            existing = await db.products.find_one({"name": sp["name"]})
+            if existing:
+                await db.products.update_one(
+                    {"name": sp["name"]},
+                    {"$set": {
+                        "brand": sp.get("brand"),
+                        "supplier_name": sp.get("supplier_name"),
+                        "supplier_email": sp.get("supplier_email"),
+                    }},
+                )
+            else:
+                p = Product(**sp)
+                doc = p.model_dump()
+                doc["created_at"] = doc["created_at"].isoformat()
+                await db.products.insert_one(doc)
+                inserted += 1
+        if inserted:
+            logger.info("Added %d new seed products", inserted)
 
     # Seed discount codes if empty
     if await db.discount_codes.count_documents({}) == 0:

@@ -1,0 +1,44 @@
+{
+  "summary": "Phase 4 backend testing complete. Added 23 new tests covering: expanded catalog (18 products w/ brand+supplier), public order tracking (5 cases incl. missing/empty/wrong email + unknown id), marketing channels (admin/non-admin/anon), campaign CRUD + send (graceful no-op for telegram/facebook/instagram, 404, channel filtering, empty channels 400), and notification settings Meta fields (fb_page_id unmasked, fb/ig tokens masked, telegram_channel_id persisted). All 23 Phase 4 tests PASS. Combined regression run: 84/85 tests pass. The single failure (TestNotifications.test_status_shape in backend_test.py) is a PRE-EXISTING test isolation issue — it asserts telegram chat_id_set=False but the notification_settings DB doc persists across test iterations from Phase 3 runs. API logic is correct; only test cleanup is missing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/notifications/settings (PUT)", "issue": "Empty string values are filtered out by `if v is not None and v != ''` in notifications_set — cannot clear/reset a previously-set credential via API. Not blocking but worth noting."},
+      {"endpoint": "/api/orders/track/{id}?email=", "issue": "Empty email param ('') correctly returns 400, but consider also rejecting whitespace-only. Currently FastAPI passes '' through `if not email` which catches it — OK."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase4.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/phase4_results.xml"
+  ],
+  "action_items": [
+    "(Pre-existing, not Phase 4) Either reset notification_settings doc in a session-scoped fixture in backend_test.py, or relax test_status_shape to not assert chat_id_set=False — current assertion fails on second run due to DB state leftover from prior Phase 3 tests setting telegram_chat_id.",
+    "Consider adding ability to clear individual notification setting fields (e.g. allow explicit null to unset)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1285 lines — recommend splitting into routers (auth.py, products.py, orders.py, marketing.py, payments.py) as the file is growing past the 700-line guideline.",
+    "Order tracking endpoint correctly excludes user_id and session_id from public response (verified via test_track_correct_id_and_email).",
+    "marketing.post_instagram correctly enforces image_url requirement (returns sent:false with reason rather than 500).",
+    "Cart endpoints (PUT /cart/update, DELETE /cart/{pid}) have no null-cart guard — `cart.get('items')` on None will throw. Verified via code read; not Phase 4 scope but worth noting.",
+    "Phase 4 endpoints all have proper admin guards via Depends(require_admin), input validation via Pydantic, and graceful failure (sent:false + reason) instead of 500 errors."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase4.py"],
+  "success_rate": {
+    "backend": "100% (23/23 Phase 4) | 84/85 combined; the 1 failure is pre-existing DB-state pollution in backend_test.py, not a Phase 4 regression",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "admin@veikals.lv / Admin123! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created a TEST_ customer + pending order via /api/payments/checkout (real Stripe session via emergentintegrations) for the order-tracking test fixture. Test campaigns auto-cleaned via DELETE in test_delete_campaign_admin and test_create_invalid_channels_filtered. Persistent test data: notification_settings.fb_page_id='TEST_fb_page_123', ig_user_id='TEST_ig_999', telegram_channel_id='@TEST_channel' (cannot be cleared via API — see action items).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 endpoints verified: expanded catalog (18 products), GET /api/orders/track/{id}?email=, /api/marketing/channels, /api/marketing/campaigns (CRUD + /send), notification settings Meta fields. All graceful no-ops work — telegram/fb/ig all return sent:false with reason when creds missing. The notification_settings doc persists between test runs causing TestNotifications.test_status_shape to fail on re-runs (Phase 3 test in backend_test.py). To fix: add a teardown fixture that resets the notification_settings doc or directly drops it via mongo. NOTE: Phase 4 tests in test_phase4.py set fb/ig/telegram_channel_id in DB — this is intentional for the masking test and also causes marketing channels facebook/instagram to report configured:true subsequently.",
+  "rca_of_issue_test_status_shape_failure": {
+    "issue": "backend_test.py::TestNotifications::test_status_shape asserts d['telegram']['chat_id_set'] is False",
+    "reproduction": "Run pytest twice — first run passes (or fresh DB), second run fails because earlier TestNotifications tests in same suite set telegram_chat_id which persists in notification_settings doc.",
+    "root_cause": "No teardown/cleanup of notification_settings collection between test sessions. The doc is upserted on PUT and never reset.",
+    "mitigation": "Add session-scoped fixture in backend_test.py conftest: db_clear_notification_settings() that drops or resets {id:'global'} before TestNotifications class runs. Alternatively relax assertion to: 'assert isinstance(d[\"telegram\"][\"chat_id_set\"], bool)'."
+  }
+}

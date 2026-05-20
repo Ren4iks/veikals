@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, XCircle, TelegramLogo, WhatsappLogo, PaperPlaneTilt, FloppyDisk, Eye, EyeSlash } from "@phosphor-icons/react";
+import { CheckCircle, XCircle, TelegramLogo, WhatsappLogo, FacebookLogo, InstagramLogo, PaperPlaneTilt, FloppyDisk, Eye, EyeSlash } from "@phosphor-icons/react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 
@@ -22,8 +22,14 @@ export default function NotificationsTab() {
     whatsapp_to_default: "",
     enabled_telegram: true,
     enabled_whatsapp: true,
+    // Marketing channels
+    telegram_channel_id: "",
+    fb_page_id: "",
+    fb_page_access_token: "",
+    ig_user_id: "",
+    ig_access_token: "",
   });
-  const [show, setShow] = useState({ tg: false, sid: false, auth: false });
+  const [show, setShow] = useState({ tg: false, sid: false, auth: false, fb: false, ig: false });
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(null);
   const [log, setLog] = useState([]);
@@ -40,10 +46,13 @@ export default function NotificationsTab() {
     setForm((f) => ({
       ...f,
       telegram_chat_id: st.telegram_chat_id || "",
+      telegram_channel_id: st.telegram_channel_id || "",
       twilio_whatsapp_from: st.twilio_whatsapp_from || "",
       whatsapp_to_default: st.whatsapp_to_default || "",
       enabled_telegram: !!st.enabled_telegram,
       enabled_whatsapp: !!st.enabled_whatsapp,
+      fb_page_id: st.fb_page_id || "",
+      ig_user_id: st.ig_user_id || "",
     }));
     setLog(lg);
   };
@@ -54,7 +63,7 @@ export default function NotificationsTab() {
     try {
       // Only send non-empty secrets to avoid wiping existing values
       const payload = { ...form };
-      ["telegram_bot_token", "twilio_account_sid", "twilio_auth_token"].forEach((k) => {
+      ["telegram_bot_token", "twilio_account_sid", "twilio_auth_token", "fb_page_access_token", "ig_access_token"].forEach((k) => {
         if (!payload[k]) delete payload[k];
       });
       await api.put("/notifications/settings", payload);
@@ -227,6 +236,95 @@ export default function NotificationsTab() {
         <button onClick={save} disabled={busy} className="btn-primary mt-6" data-testid="notif-save-btn">
           <FloppyDisk size={16} weight="duotone" /> {busy ? "Saglabā..." : "Saglabāt iestatījumus"}
         </button>
+      </div>
+
+      {/* Marketing channels (Telegram channel + Meta) */}
+      <div className="border border-black/10 p-6 mb-8">
+        <div className="font-display font-bold text-lg mb-1">Mārketinga kanāli</div>
+        <div className="text-xs text-neutral-500 mb-5">Šie kanāli tiek izmantoti Mārketinga kampaņām (sākumlapas reklāmas, jaunumu izsūtīšana)</div>
+
+        <div className="grid sm:grid-cols-3 gap-5">
+          {/* Telegram channel */}
+          <div className="space-y-3">
+            <div className="label-eyebrow flex items-center gap-1.5"><TelegramLogo size={14} weight="duotone" /> Telegram kanāls</div>
+            <div>
+              <label className="text-xs uppercase tracking-wider font-medium">Channel ID</label>
+              <input
+                value={form.telegram_channel_id}
+                onChange={(e) => setForm({ ...form, telegram_channel_id: e.target.value })}
+                placeholder="@mans_kanals vai -100..."
+                className="shadcn-input mt-2"
+                data-testid="notif-tg-channel"
+              />
+            </div>
+            <p className="text-xs text-neutral-500">Ja tukšs — tiek izmantots Chat ID no augšas.</p>
+          </div>
+
+          {/* Facebook */}
+          <div className="space-y-3">
+            <div className="label-eyebrow flex items-center gap-1.5"><FacebookLogo size={14} weight="duotone" /> Facebook lapa</div>
+            <div>
+              <label className="text-xs uppercase tracking-wider font-medium">Page ID</label>
+              <input
+                value={form.fb_page_id}
+                onChange={(e) => setForm({ ...form, fb_page_id: e.target.value })}
+                placeholder="123456789012345"
+                className="shadcn-input mt-2"
+                data-testid="notif-fb-id"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-wider font-medium">Page Access Token {settings.fb_page_access_token_masked && <span className="ml-1 text-neutral-500 normal-case">{settings.fb_page_access_token_masked}</span>}</label>
+              <div className="mt-2 flex">
+                <input
+                  type={show.fb ? "text" : "password"}
+                  value={form.fb_page_access_token}
+                  onChange={(e) => setForm({ ...form, fb_page_access_token: e.target.value })}
+                  placeholder="EAAGm0PX..."
+                  className="shadcn-input flex-1"
+                  data-testid="notif-fb-token"
+                />
+                <button type="button" onClick={() => setShow({ ...show, fb: !show.fb })} className="px-3 border border-l-0 border-black/15 hover:bg-neutral-50">
+                  {show.fb ? <EyeSlash size={16} weight="duotone" /> : <Eye size={16} weight="duotone" />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Instagram */}
+          <div className="space-y-3">
+            <div className="label-eyebrow flex items-center gap-1.5"><InstagramLogo size={14} weight="duotone" /> Instagram Business</div>
+            <div>
+              <label className="text-xs uppercase tracking-wider font-medium">IG User ID</label>
+              <input
+                value={form.ig_user_id}
+                onChange={(e) => setForm({ ...form, ig_user_id: e.target.value })}
+                placeholder="17841400000000000"
+                className="shadcn-input mt-2"
+                data-testid="notif-ig-id"
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-wider font-medium">Access Token {settings.ig_access_token_masked && <span className="ml-1 text-neutral-500 normal-case">{settings.ig_access_token_masked}</span>}</label>
+              <div className="mt-2 flex">
+                <input
+                  type={show.ig ? "text" : "password"}
+                  value={form.ig_access_token}
+                  onChange={(e) => setForm({ ...form, ig_access_token: e.target.value })}
+                  placeholder="IGQVJ..."
+                  className="shadcn-input flex-1"
+                  data-testid="notif-ig-token"
+                />
+                <button type="button" onClick={() => setShow({ ...show, ig: !show.ig })} className="px-3 border border-l-0 border-black/15 hover:bg-neutral-50">
+                  {show.ig ? <EyeSlash size={16} weight="duotone" /> : <Eye size={16} weight="duotone" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-neutral-500 mt-4 leading-relaxed">
+          💡 Facebook/Instagram: izveidojiet Meta App developers.facebook.com → izvēlieties Page un IG Business → ģenerējiet Long-Lived tokenu ar <code>pages_manage_posts</code> + <code>instagram_content_publish</code>.
+        </p>
       </div>
 
       {/* Test sender */}

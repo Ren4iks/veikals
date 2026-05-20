@@ -16,6 +16,7 @@ import Register from "@/pages/Register";
 import Profile from "@/pages/Profile";
 import Admin from "@/pages/Admin";
 import PaymentSuccess from "@/pages/PaymentSuccess";
+import TrackOrder from "@/pages/TrackOrder";
 
 function App() {
   return (
@@ -35,6 +36,8 @@ function App() {
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/payment-success" element={<PaymentSuccess />} />
+                <Route path="/track" element={<TrackOrder />} />
+                <Route path="/track/:id" element={<TrackOrder />} />
               </Routes>
             </main>
             <Footer />

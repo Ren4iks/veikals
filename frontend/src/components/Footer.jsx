@@ -17,6 +17,7 @@ export default function Footer() {
         <div>
           <div className="label-eyebrow">Palīdzība</div>
           <ul className="mt-4 space-y-2 text-sm text-neutral-700">
+            <li><a href="/track" className="hover:text-black">Sekot pasūtījumam</a></li>
             <li>Piegāde</li>
             <li>Atgriešana</li>
             <li>FAQ</li>

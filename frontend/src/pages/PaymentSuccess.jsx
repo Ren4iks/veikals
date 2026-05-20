@@ -61,6 +61,7 @@ export default function PaymentSuccess() {
           </p>
           <p className="text-neutral-600 mt-2 text-sm">Apstiprinājums tiks nosūtīts uz tavu e-pastu.</p>
           <div className="flex gap-3 justify-center mt-10">
+            <Link to="/track" className="btn-secondary">Sekot pasūtījumam</Link>
             <Link to="/profile" className="btn-secondary">Mani pasūtījumi</Link>
             <Link to="/shop" className="btn-primary">Turpināt iepirkties</Link>
           </div>
