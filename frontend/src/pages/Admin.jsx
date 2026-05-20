@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Trash, PencilSimple, Plus, X, Package, Tag, ShoppingBag, Robot, Truck } from "@phosphor-icons/react";
+import { Trash, PencilSimple, Plus, X, Package, Tag, ShoppingBag, Robot, Truck, Bell } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import AdminChat from "@/components/AdminChat";
+import NotificationsTab from "@/components/NotificationsTab";
 
 const EMPTY_P = {
   name: "", description: "", price: 0, category: "apgerbs",
@@ -20,6 +21,7 @@ const TABS = [
   { key: "products", label: "Produkti", icon: Package },
   { key: "discounts", label: "Atlaides", icon: Tag },
   { key: "orders", label: "Pasūtījumi", icon: ShoppingBag },
+  { key: "notifications", label: "Paziņojumi", icon: Bell },
   { key: "ai", label: "AI Bots", icon: Robot },
 ];
 
@@ -54,6 +56,7 @@ export default function Admin() {
         {tab === "products" && <ProductsTab />}
         {tab === "discounts" && <DiscountsTab />}
         {tab === "orders" && <OrdersTab />}
+        {tab === "notifications" && <NotificationsTab />}
         {tab === "ai" && <AdminChat />}
       </div>
     </div>

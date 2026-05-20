@@ -24,6 +24,10 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout, CheckoutSessionRequest, CheckoutSessionResponse, CheckoutStatusResponse
 )
+# Notifications
+from notifications import (
+    send_telegram, send_whatsapp, channel_status, format_order_message, _get_settings as _notif_settings
+)
 
 # ----- DB -----
 mongo_url = os.environ['MONGO_URL']
@@ -532,36 +536,146 @@ async def admin_chat(body: AdminChatRequest, user: dict = Depends(require_admin)
         "active_codes": len(codes),
     }}
 
+# ============ NOTIFICATIONS (Telegram + WhatsApp) ============
+
+class NotificationSettings(BaseModel):
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_whatsapp_from: Optional[str] = None
+    whatsapp_to_default: Optional[str] = None
+    enabled_telegram: Optional[bool] = None
+    enabled_whatsapp: Optional[bool] = None
+
+class TestNotificationRequest(BaseModel):
+    channel: str  # "telegram" | "whatsapp" | "both"
+    message: Optional[str] = "🧪 Tests no Veikals administrēšanas paneļa. Sistēma darbojas."
+
+@api.get("/notifications/status")
+async def notifications_status(user: dict = Depends(require_admin)):
+    return await channel_status(db)
+
+@api.get("/notifications/settings")
+async def notifications_get(user: dict = Depends(require_admin)):
+    doc = await db.notification_settings.find_one({"id": "global"}, {"_id": 0}) or {}
+    # Mask secrets when returning (show only last 4 chars)
+    def mask(v: str) -> str:
+        if not v:
+            return ""
+        return f"••••{v[-4:]}" if len(v) > 4 else "••••"
+    return {
+        "telegram_bot_token_masked": mask(doc.get("telegram_bot_token", "")),
+        "telegram_chat_id": doc.get("telegram_chat_id", ""),
+        "twilio_account_sid_masked": mask(doc.get("twilio_account_sid", "")),
+        "twilio_auth_token_masked": mask(doc.get("twilio_auth_token", "")),
+        "twilio_whatsapp_from": doc.get("twilio_whatsapp_from", os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")),
+        "whatsapp_to_default": doc.get("whatsapp_to_default", os.environ.get("WHATSAPP_TO_DEFAULT", "")),
+        "enabled_telegram": doc.get("enabled_telegram", True),
+        "enabled_whatsapp": doc.get("enabled_whatsapp", True),
+    }
+
+@api.put("/notifications/settings")
+async def notifications_set(body: NotificationSettings, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in body.model_dump().items() if v is not None and v != ""}
+    if not update:
+        raise HTTPException(400, "Nav datu atjaunināšanai")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.notification_settings.update_one(
+        {"id": "global"},
+        {"$set": update, "$setOnInsert": {"id": "global"}},
+        upsert=True,
+    )
+    return await channel_status(db)
+
+@api.post("/notifications/test")
+async def notifications_test(body: TestNotificationRequest, user: dict = Depends(require_admin)):
+    results = {}
+    msg = body.message or "Test no Veikals"
+    if body.channel in ("telegram", "both"):
+        results["telegram"] = await send_telegram(db, msg)
+    if body.channel in ("whatsapp", "both"):
+        results["whatsapp"] = await send_whatsapp(db, msg)
+    return results
+
+@api.get("/notifications/log")
+async def notifications_log(user: dict = Depends(require_admin)):
+    items = await db.supplier_notifications.find({}, {"_id": 0}).sort("sent_at", -1).to_list(100)
+    return items
+
 # ============ PAYMENTS (Stripe) ============
 
 async def _notify_suppliers_for_order(order: dict):
-    """Group order items by supplier and log a fulfillment notification.
-    In production, replace with Resend/SendGrid email send."""
+    """Group order items by supplier and send Telegram + WhatsApp notifications.
+    Persist outcome to db.supplier_notifications."""
+    by_supplier: Dict[str, dict] = {}
+    for it in order.get("items", []):
+        p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
+        if not p:
+            continue
+        key = p.get("supplier_email") or "internal"
+        by_supplier.setdefault(key, {"supplier_name": p.get("supplier_name") or "Internal", "items": []})
+        by_supplier[key]["items"].append({"product": p["name"], "quantity": it["quantity"]})
+
+    for sup_email, info in by_supplier.items():
+        msg_text = format_order_message(order, info["items"], info["supplier_name"])
+        tg_result = await send_telegram(db, msg_text)
+        wa_result = await send_whatsapp(db, msg_text)
+        logger.info(
+            "[SUPPLIER NOTIFY] To=%s Order=%s TG=%s WA=%s",
+            sup_email, order.get("id"),
+            "OK" if tg_result.get("sent") else f"SKIP({tg_result.get('reason','')})",
+            "OK" if wa_result.get("sent") else f"SKIP({wa_result.get('reason','')})",
+        )
+        await db.supplier_notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "order_id": order.get("id"),
+            "supplier_email": sup_email,
+            "supplier_name": info["supplier_name"],
+            "items": info["items"],
+            "shipping_address": order.get("shipping_address") or {},
+            "user_email": order.get("user_email"),
+            "telegram": tg_result,
+            "whatsapp": wa_result,
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+            "status": "delivered" if (tg_result.get("sent") or wa_result.get("sent")) else "logged_only",
+        })
+
+    """Group order items by supplier and send Telegram + WhatsApp notifications.
+    Persist outcome to db.supplier_notifications."""
     by_supplier: Dict[str, list] = {}
     for it in order.get("items", []):
         p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
         if not p:
             continue
         key = p.get("supplier_email") or "internal"
-        by_supplier.setdefault(key, []).append({
-            "supplier_name": p.get("supplier_name") or "Internal",
-            "product": p["name"],
-            "quantity": it["quantity"],
-        })
-    for sup_email, lines in by_supplier.items():
+        by_supplier.setdefault(key, {"supplier_name": p.get("supplier_name") or "Internal", "items": []})
+        by_supplier[key]["items"].append({"product": p["name"], "quantity": it["quantity"]})
+
+    for sup_email, info in by_supplier.items():
+        msg_text = format_order_message(order, info["items"], info["supplier_name"])
+        # Send to admin channels (Telegram + WhatsApp). In future could route per-supplier.
+        tg_result = await send_telegram(db, msg_text)
+        wa_result = await send_whatsapp(db, msg_text)
+
         logger.info(
-            "[SUPPLIER NOTIFY] To=%s Order=%s Items=%s Address=%s",
-            sup_email, order.get("id"), lines, order.get("shipping_address"),
+            "[SUPPLIER NOTIFY] To=%s Order=%s TG=%s WA=%s",
+            sup_email, order.get("id"),
+            "OK" if tg_result.get("sent") else f"SKIP({tg_result.get('reason','')})",
+            "OK" if wa_result.get("sent") else f"SKIP({wa_result.get('reason','')})",
         )
         await db.supplier_notifications.insert_one({
             "id": str(uuid.uuid4()),
             "order_id": order.get("id"),
             "supplier_email": sup_email,
-            "items": lines,
+            "supplier_name": info["supplier_name"],
+            "items": info["items"],
             "shipping_address": order.get("shipping_address") or {},
             "user_email": order.get("user_email"),
+            "telegram": tg_result,
+            "whatsapp": wa_result,
             "sent_at": datetime.now(timezone.utc).isoformat(),
-            "status": "logged",
+            "status": "delivered" if (tg_result.get("sent") or wa_result.get("sent")) else "logged_only",
         })
 
 @api.post("/payments/checkout")

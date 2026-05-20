@@ -640,3 +640,163 @@ class TestChat:
         assert "reply" in d and isinstance(d["reply"], str)
         assert len(d["reply"]) > 0
         assert "session_id" in d
+
+
+
+# --- Phase 3: Notifications (Telegram + WhatsApp) ---
+
+class TestNotifications:
+    """Verify graceful no-op behavior when Telegram/Twilio creds are missing."""
+
+    def test_status_requires_admin(self, customer_token):
+        r = requests.get(f"{API}/notifications/status", headers=cust_headers(customer_token))
+        assert r.status_code == 403
+
+    def test_status_unauthenticated(self):
+        r = requests.get(f"{API}/notifications/status")
+        assert r.status_code == 401
+
+    def test_status_shape(self, admin_token):
+        r = requests.get(f"{API}/notifications/status", headers=admin_headers(admin_token))
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert "telegram" in d and "whatsapp" in d
+        for ch in ("telegram", "whatsapp"):
+            assert "configured" in d[ch]
+            assert "enabled" in d[ch]
+            assert isinstance(d[ch]["configured"], bool)
+            assert isinstance(d[ch]["enabled"], bool)
+        # With empty env creds, configured should be False
+        assert d["telegram"]["configured"] is False
+        assert d["telegram"]["token_set"] is False
+        assert d["telegram"]["chat_id_set"] is False
+        # whatsapp has WHATSAPP_TO_DEFAULT env set but no SID/token
+        assert d["whatsapp"]["configured"] is False
+        assert d["whatsapp"]["sid_set"] is False
+        assert d["whatsapp"]["token_set"] is False
+
+    def test_settings_get_masks_secrets_and_returns_defaults(self, admin_token):
+        r = requests.get(f"{API}/notifications/settings", headers=admin_headers(admin_token))
+        assert r.status_code == 200, r.text
+        d = r.json()
+        # Required keys present
+        for k in ("telegram_bot_token_masked", "telegram_chat_id",
+                  "twilio_account_sid_masked", "twilio_auth_token_masked",
+                  "twilio_whatsapp_from", "whatsapp_to_default",
+                  "enabled_telegram", "enabled_whatsapp"):
+            assert k in d, f"missing {k}"
+        # Default WhatsApp recipient from env
+        assert d["whatsapp_to_default"] == "whatsapp:+37125522773", d
+        # twilio_whatsapp_from default from env
+        assert d["twilio_whatsapp_from"].startswith("whatsapp:")
+
+    def test_settings_put_empty_400(self, admin_token):
+        r = requests.put(f"{API}/notifications/settings", json={}, headers=admin_headers(admin_token))
+        assert r.status_code == 400
+
+    def test_settings_put_forbidden_customer(self, customer_token):
+        r = requests.put(f"{API}/notifications/settings",
+                         json={"telegram_chat_id": "123"},
+                         headers=cust_headers(customer_token))
+        assert r.status_code == 403
+
+    def test_settings_persistence(self, admin_token):
+        h = admin_headers(admin_token)
+        # update telegram_chat_id
+        ru = requests.put(f"{API}/notifications/settings",
+                          json={"telegram_chat_id": "123456",
+                                "twilio_whatsapp_from": "whatsapp:+14155238886",
+                                "whatsapp_to_default": "whatsapp:+37125522773",
+                                "enabled_telegram": True,
+                                "enabled_whatsapp": True},
+                          headers=h)
+        assert ru.status_code == 200, ru.text
+        # status returned
+        d = ru.json()
+        assert "telegram" in d and "whatsapp" in d
+
+        # GET to verify persistence (telegram_chat_id should be unmasked)
+        rg = requests.get(f"{API}/notifications/settings", headers=h)
+        assert rg.status_code == 200
+        g = rg.json()
+        assert g["telegram_chat_id"] == "123456"
+        assert g["whatsapp_to_default"] == "whatsapp:+37125522773"
+        assert g["enabled_telegram"] is True
+        assert g["enabled_whatsapp"] is True
+
+    def test_test_telegram_no_token_graceful(self, admin_token):
+        # Reset enabled flag in case prior test changed it
+        requests.put(f"{API}/notifications/settings",
+                     json={"enabled_telegram": True}, headers=admin_headers(admin_token))
+        r = requests.post(f"{API}/notifications/test",
+                          json={"channel": "telegram", "message": "TEST_telegram_noop"},
+                          headers=admin_headers(admin_token))
+        # MUST NOT 500
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert "telegram" in d
+        assert d["telegram"]["sent"] is False
+        reason = (d["telegram"].get("reason") or "").lower()
+        # reason about token / chat_id missing
+        assert ("token" in reason) or ("chat_id" in reason), d
+
+    def test_test_whatsapp_no_creds_graceful(self, admin_token):
+        requests.put(f"{API}/notifications/settings",
+                     json={"enabled_whatsapp": True}, headers=admin_headers(admin_token))
+        r = requests.post(f"{API}/notifications/test",
+                          json={"channel": "whatsapp", "message": "TEST_wa_noop"},
+                          headers=admin_headers(admin_token))
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert "whatsapp" in d
+        assert d["whatsapp"]["sent"] is False
+        reason = (d["whatsapp"].get("reason") or "")
+        # Twilio Account SID or Auth Token missing
+        assert ("Twilio Account SID" in reason) or ("Auth Token" in reason) or ("SID" in reason), d
+
+    def test_test_both_returns_both_results(self, admin_token):
+        requests.put(f"{API}/notifications/settings",
+                     json={"enabled_telegram": True, "enabled_whatsapp": True},
+                     headers=admin_headers(admin_token))
+        r = requests.post(f"{API}/notifications/test",
+                          json={"channel": "both"},
+                          headers=admin_headers(admin_token))
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert "telegram" in d and "whatsapp" in d
+        # both should be sent=False with reasons (no creds)
+        assert d["telegram"]["sent"] is False
+        assert d["whatsapp"]["sent"] is False
+
+    def test_disabled_channel_returns_disabled_reason(self, admin_token):
+        h = admin_headers(admin_token)
+        # Disable telegram
+        ru = requests.put(f"{API}/notifications/settings",
+                          json={"enabled_telegram": False}, headers=h)
+        assert ru.status_code == 200
+        # Test telegram → should report disabled
+        r = requests.post(f"{API}/notifications/test",
+                          json={"channel": "telegram"}, headers=h)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["telegram"]["sent"] is False
+        reason = (d["telegram"].get("reason") or "").lower()
+        assert "disabled" in reason, d
+        # Re-enable for subsequent tests
+        requests.put(f"{API}/notifications/settings",
+                     json={"enabled_telegram": True}, headers=h)
+
+    def test_test_requires_admin(self, customer_token):
+        r = requests.post(f"{API}/notifications/test",
+                          json={"channel": "telegram"},
+                          headers=cust_headers(customer_token))
+        assert r.status_code == 403
+
+    def test_log_returns_list(self, admin_token):
+        r = requests.get(f"{API}/notifications/log", headers=admin_headers(admin_token))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_log_requires_admin(self, customer_token):
+        r = requests.get(f"{API}/notifications/log", headers=cust_headers(customer_token))
+        assert r.status_code == 403
