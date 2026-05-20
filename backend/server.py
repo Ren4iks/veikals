@@ -69,6 +69,9 @@ class Product(BaseModel):
     stock: int = 10
     variant: Optional[str] = None  # e.g. "Orange", "Blue"
     featured: bool = False
+    supplier_name: Optional[str] = None
+    supplier_email: Optional[str] = None
+    brand: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProductCreate(BaseModel):
@@ -81,6 +84,9 @@ class ProductCreate(BaseModel):
     stock: int = 10
     variant: Optional[str] = None
     featured: bool = False
+    supplier_name: Optional[str] = None
+    supplier_email: Optional[str] = None
+    brand: Optional[str] = None
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -92,6 +98,9 @@ class ProductUpdate(BaseModel):
     stock: Optional[int] = None
     variant: Optional[str] = None
     featured: Optional[bool] = None
+    supplier_name: Optional[str] = None
+    supplier_email: Optional[str] = None
+    brand: Optional[str] = None
 
 class CartItem(BaseModel):
     product_id: str
@@ -119,8 +128,47 @@ class Order(BaseModel):
 class CheckoutRequest(BaseModel):
     origin_url: str
     shipping_address: Optional[Dict[str, str]] = None
+    discount_code: Optional[str] = None
 
 class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+class DiscountCode(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    code: str
+    type: str  # percentage | fixed
+    value: float  # 10 = 10% or 5 = €5
+    active: bool = True
+    min_order: float = 0.0
+    usage_limit: int = 0  # 0 = unlimited
+    used_count: int = 0
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DiscountCodeCreate(BaseModel):
+    code: str
+    type: str
+    value: float
+    active: bool = True
+    min_order: float = 0.0
+    usage_limit: int = 0
+    description: Optional[str] = None
+
+class DiscountCodeUpdate(BaseModel):
+    code: Optional[str] = None
+    type: Optional[str] = None
+    value: Optional[float] = None
+    active: Optional[bool] = None
+    min_order: Optional[float] = None
+    usage_limit: Optional[int] = None
+    description: Optional[str] = None
+
+class ApplyDiscountRequest(BaseModel):
+    code: str
+    subtotal: float
+
+class AdminChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
@@ -355,7 +403,166 @@ async def list_orders(user: dict = Depends(get_current_user)):
         orders = await db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return orders
 
+@api.put("/orders/{order_id}/status")
+async def update_order_status(order_id: str, body: Dict[str, str], user: dict = Depends(require_admin)):
+    new_status = body.get("status")
+    if new_status not in ["pending", "paid", "shipped", "delivered", "cancelled"]:
+        raise HTTPException(400, "Nederīgs statuss")
+    res = await db.orders.update_one({"id": order_id}, {"$set": {"status": new_status}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Pasūtījums nav atrasts")
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return order
+
+# ============ DISCOUNT CODES ============
+
+@api.get("/discount-codes")
+async def list_discounts(user: dict = Depends(require_admin)):
+    items = await db.discount_codes.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+@api.get("/discount-codes/public")
+async def public_discounts():
+    """Active codes for promo banner display."""
+    items = await db.discount_codes.find({"active": True}, {"_id": 0}).to_list(50)
+    return [
+        {"code": c["code"], "type": c["type"], "value": c["value"], "description": c.get("description", "")}
+        for c in items
+    ]
+
+@api.post("/discount-codes")
+async def create_discount(body: DiscountCodeCreate, user: dict = Depends(require_admin)):
+    if body.type not in ["percentage", "fixed"]:
+        raise HTTPException(400, "Tips: percentage vai fixed")
+    code = body.code.upper().strip()
+    existing = await db.discount_codes.find_one({"code": code})
+    if existing:
+        raise HTTPException(400, "Kods jau pastāv")
+    d = DiscountCode(**{**body.model_dump(), "code": code})
+    doc = d.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.discount_codes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/discount-codes/{code_id}")
+async def update_discount(code_id: str, body: DiscountCodeUpdate, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "code" in update:
+        update["code"] = update["code"].upper().strip()
+    if not update:
+        raise HTTPException(400, "Nav datu")
+    res = await db.discount_codes.update_one({"id": code_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Nav atrasts")
+    d = await db.discount_codes.find_one({"id": code_id}, {"_id": 0})
+    return d
+
+@api.delete("/discount-codes/{code_id}")
+async def delete_discount(code_id: str, user: dict = Depends(require_admin)):
+    res = await db.discount_codes.delete_one({"id": code_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Nav atrasts")
+    return {"ok": True}
+
+@api.post("/discount/validate")
+async def validate_discount(body: ApplyDiscountRequest):
+    code = body.code.upper().strip()
+    d = await db.discount_codes.find_one({"code": code, "active": True}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Kods nav atrasts vai nav aktīvs")
+    if body.subtotal < d.get("min_order", 0):
+        raise HTTPException(400, f"Minimālā summa: €{d['min_order']:.2f}")
+    if d.get("usage_limit", 0) > 0 and d.get("used_count", 0) >= d.get("usage_limit", 0):
+        raise HTTPException(400, "Šis kods vairs nav pieejams")
+    if d["type"] == "percentage":
+        discount = round(body.subtotal * (float(d["value"]) / 100.0), 2)
+    else:
+        discount = float(d["value"])
+    discount = min(discount, body.subtotal)
+    return {
+        "code": d["code"],
+        "type": d["type"],
+        "value": d["value"],
+        "discount_amount": discount,
+        "new_total": round(body.subtotal - discount, 2),
+    }
+
+# ============ ADMIN AI BOT ============
+
+ADMIN_BOT_SYSTEM = (
+    "Tu esi 'Veikals' administrācijas AI asistents latviešu valodā. "
+    "Tu palīdzi veikala īpašniekam apstrādāt pasūtījumus: "
+    "1) sniegt kopsavilkumu par pasūtījumiem, 2) ieteikt darbības (piem. 'nosūtīt', 'atcelt'), "
+    "3) izsekot piegādātājus/ražotājus, 4) atbildēt par atlaides kodu izveidi un statistiku. "
+    "Esi profesionāls, kodolīgs, 1-3 teikumi. Sniedz konkrētus skaitļus un produktu nosaukumus, ja tādi tiek doti kontekstā."
+)
+
+@api.post("/admin/chat")
+async def admin_chat(body: AdminChatRequest, user: dict = Depends(require_admin)):
+    # Build context: recent orders + active codes
+    pending = await db.orders.find({"status": "pending", "payment_status": "paid"}, {"_id": 0}).to_list(20)
+    recent = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(10)
+    codes = await db.discount_codes.find({"active": True}, {"_id": 0}).to_list(20)
+
+    summary_lines = ["KONTEKSTS (jaunākie dati):"]
+    summary_lines.append(f"- Apmaksāti, gaida nosūtīšanu: {len(pending)} pasūtījumi")
+    if pending:
+        for o in pending[:5]:
+            items_names = ", ".join([f"{i['name']} x{i['quantity']}" for i in o.get("items", [])][:3])
+            summary_lines.append(f"  · #{o['id'][:8]} — €{o['total']:.2f} — {items_names} — {o.get('user_email','')}")
+    summary_lines.append(f"- Pēdējie 10 pasūtījumi statusi: " + ", ".join([f"{o['id'][:8]}={o.get('status','?')}" for o in recent]))
+    summary_lines.append(f"- Aktīvie atlaižu kodi: " + (", ".join([f"{c['code']} ({c['type']} {c['value']})" for c in codes]) or "nav"))
+
+    api_key = os.environ['EMERGENT_LLM_KEY']
+    session_id = body.session_id or f"admin-{user['id']}"
+    try:
+        chat_obj = LlmChat(
+            api_key=api_key,
+            session_id=session_id,
+            system_message=ADMIN_BOT_SYSTEM + "\n\n" + "\n".join(summary_lines),
+        ).with_model("openai", "gpt-5.2")
+        reply = await chat_obj.send_message(UserMessage(text=body.message))
+    except Exception as e:
+        logger.exception("Admin chat failed")
+        raise HTTPException(500, f"Bots neatbild: {e}")
+
+    return {"reply": str(reply), "session_id": session_id, "context": {
+        "pending_paid_orders": len(pending),
+        "active_codes": len(codes),
+    }}
+
 # ============ PAYMENTS (Stripe) ============
+
+async def _notify_suppliers_for_order(order: dict):
+    """Group order items by supplier and log a fulfillment notification.
+    In production, replace with Resend/SendGrid email send."""
+    by_supplier: Dict[str, list] = {}
+    for it in order.get("items", []):
+        p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
+        if not p:
+            continue
+        key = p.get("supplier_email") or "internal"
+        by_supplier.setdefault(key, []).append({
+            "supplier_name": p.get("supplier_name") or "Internal",
+            "product": p["name"],
+            "quantity": it["quantity"],
+        })
+    for sup_email, lines in by_supplier.items():
+        logger.info(
+            "[SUPPLIER NOTIFY] To=%s Order=%s Items=%s Address=%s",
+            sup_email, order.get("id"), lines, order.get("shipping_address"),
+        )
+        await db.supplier_notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "order_id": order.get("id"),
+            "supplier_email": sup_email,
+            "items": lines,
+            "shipping_address": order.get("shipping_address") or {},
+            "user_email": order.get("user_email"),
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+            "status": "logged",
+        })
 
 @api.post("/payments/checkout")
 async def create_checkout(body: CheckoutRequest, request: Request, user: dict = Depends(get_current_user)):
@@ -381,7 +588,23 @@ async def create_checkout(body: CheckoutRequest, request: Request, user: dict = 
         })
     if total <= 0:
         raise HTTPException(400, "Nederīga summa")
-    total = round(total, 2)
+
+    subtotal = round(total, 2)
+    discount_amount = 0.0
+    applied_code = None
+    if body.discount_code:
+        d = await db.discount_codes.find_one({"code": body.discount_code.upper(), "active": True}, {"_id": 0})
+        if d and subtotal >= d.get("min_order", 0):
+            if d.get("usage_limit", 0) == 0 or d.get("used_count", 0) < d.get("usage_limit", 0):
+                if d["type"] == "percentage":
+                    discount_amount = round(subtotal * (float(d["value"]) / 100.0), 2)
+                else:
+                    discount_amount = float(d["value"])
+                discount_amount = min(discount_amount, subtotal)
+                applied_code = d["code"]
+    total = round(subtotal - discount_amount, 2)
+    if total <= 0:
+        total = 0.50  # min Stripe amount; would normally block 100% off but keep flow safe
 
     api_key = os.environ['STRIPE_API_KEY']
     host_url = str(request.base_url)
@@ -414,6 +637,9 @@ async def create_checkout(body: CheckoutRequest, request: Request, user: dict = 
         "user_id": user["id"],
         "user_email": user["email"],
         "items": items_for_order,
+        "subtotal": subtotal,
+        "discount_code": applied_code,
+        "discount_amount": discount_amount,
         "total": total,
         "currency": "eur",
         "status": "pending",
@@ -423,6 +649,10 @@ async def create_checkout(body: CheckoutRequest, request: Request, user: dict = 
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.orders.insert_one(order_doc)
+
+    # Increment usage_count on discount when applied
+    if applied_code:
+        await db.discount_codes.update_one({"code": applied_code}, {"$inc": {"used_count": 1}})
 
     # Payment transactions collection
     await db.payment_transactions.insert_one({
@@ -476,6 +706,10 @@ async def payment_status(session_id: str, request: Request):
             user_id = existing.get("user_id")
             if user_id:
                 await db.carts.update_one({"user_id": user_id}, {"$set": {"items": []}}, upsert=True)
+            # Notify suppliers (logged - in production would email via Resend/SendGrid)
+            order = await db.orders.find_one({"session_id": session_id}, {"_id": 0})
+            if order:
+                await _notify_suppliers_for_order(order)
 
     return {
         "status": s.status,
@@ -557,6 +791,9 @@ SEED_PRODUCTS = [
         "stock": 8,
         "variant": "Orange",
         "featured": True,
+        "brand": "Apple",
+        "supplier_name": "Apple Authorized Distributor EU",
+        "supplier_email": "fulfillment@apple-eu.example.com",
     },
     {
         "name": "iPhone 17 Pro Max 1TB — Zils",
@@ -568,6 +805,9 @@ SEED_PRODUCTS = [
         "stock": 8,
         "variant": "Blue",
         "featured": True,
+        "brand": "Apple",
+        "supplier_name": "Apple Authorized Distributor EU",
+        "supplier_email": "fulfillment@apple-eu.example.com",
     },
     {
         "name": "Klasiskais T-krekls — Melns",
@@ -578,6 +818,9 @@ SEED_PRODUCTS = [
         "stock": 50,
         "variant": "Black",
         "featured": False,
+        "brand": "Veikals Essentials",
+        "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
     },
     {
         "name": "Hoodie — Black Essential",
@@ -588,6 +831,9 @@ SEED_PRODUCTS = [
         "stock": 25,
         "variant": "Black",
         "featured": True,
+        "brand": "Veikals Essentials",
+        "supplier_name": "Baltic Textile Co.",
+        "supplier_email": "orders@baltictextile.example.com",
     },
     {
         "name": "Smaržas — Aurum Gold",
@@ -598,6 +844,9 @@ SEED_PRODUCTS = [
         "stock": 15,
         "variant": None,
         "featured": True,
+        "brand": "Aurum",
+        "supplier_name": "Riga Luxury Fragrances",
+        "supplier_email": "orders@rigalux.example.com",
     },
     {
         "name": "Smaržas — Noir Wood",
@@ -608,6 +857,39 @@ SEED_PRODUCTS = [
         "stock": 12,
         "variant": None,
         "featured": False,
+        "brand": "Noir",
+        "supplier_name": "Riga Luxury Fragrances",
+        "supplier_email": "orders@rigalux.example.com",
+    },
+]
+
+SEED_DISCOUNTS = [
+    {
+        "code": "VEIKALS10",
+        "type": "percentage",
+        "value": 10,
+        "active": True,
+        "min_order": 0,
+        "usage_limit": 0,
+        "description": "10% atlaide visam pasūtījumam",
+    },
+    {
+        "code": "IPHONE50",
+        "type": "fixed",
+        "value": 50,
+        "active": True,
+        "min_order": 500,
+        "usage_limit": 100,
+        "description": "−€50 iPhone pasūtījumiem no €500",
+    },
+    {
+        "code": "WELCOME",
+        "type": "fixed",
+        "value": 5,
+        "active": True,
+        "min_order": 20,
+        "usage_limit": 0,
+        "description": "−€5 pirmajam pasūtījumam (min. €20)",
     },
 ]
 
@@ -650,6 +932,26 @@ async def startup():
             doc["created_at"] = doc["created_at"].isoformat()
             await db.products.insert_one(doc)
         logger.info("Seeded %d products", len(SEED_PRODUCTS))
+    else:
+        # Backfill brand/supplier on existing seeded products (idempotent)
+        for sp in SEED_PRODUCTS:
+            await db.products.update_one(
+                {"name": sp["name"]},
+                {"$set": {
+                    "brand": sp.get("brand"),
+                    "supplier_name": sp.get("supplier_name"),
+                    "supplier_email": sp.get("supplier_email"),
+                }},
+            )
+
+    # Seed discount codes if empty
+    if await db.discount_codes.count_documents({}) == 0:
+        for sd in SEED_DISCOUNTS:
+            d = DiscountCode(**sd)
+            doc = d.model_dump()
+            doc["created_at"] = doc["created_at"].isoformat()
+            await db.discount_codes.insert_one(doc)
+        logger.info("Seeded %d discount codes", len(SEED_DISCOUNTS))
 
 @app.on_event("shutdown")
 async def shutdown():

@@ -46,7 +46,7 @@ export default function ProductDetail() {
         </div>
         <div className="flex flex-col justify-center">
           <div className="label-eyebrow" data-testid="product-category">
-            {product.category === "elektronika" ? "Elektronika" : product.category === "apgerbs" ? "Apģērbs" : "Smaržas"}
+            {product.brand ? product.brand : (product.category === "elektronika" ? "Elektronika" : product.category === "apgerbs" ? "Apģērbs" : "Smaržas")}
           </div>
           <h1 className="font-display font-black text-4xl lg:text-5xl tracking-tighter mt-3" data-testid="product-name">
             {product.name}

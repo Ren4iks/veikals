@@ -5,6 +5,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import ProductCard from "@/components/ProductCard";
+import PromoBanner from "@/components/PromoBanner";
 import { toast } from "sonner";
 
 const HERO_BG = "https://static.prod-images.emergentagent.com/jobs/a74d4ba8-ecab-48b2-9ede-e8e8a4e9204f/images/2617313151f6261e298f6200438ab7563a2f5a8d57771124c1e7f47e2a36efe3.png";
@@ -35,6 +36,7 @@ export default function Home() {
 
   return (
     <div data-testid="home-page">
+      <PromoBanner />
       {/* HERO */}
       <section className="relative overflow-hidden">
         <div

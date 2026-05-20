@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "react-router-dom";
-import { Trash, Plus, Minus, ArrowRight } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Trash, Plus, Minus, ArrowRight, Tag, CheckCircle, X } from "@phosphor-icons/react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
@@ -10,7 +10,37 @@ export default function Cart() {
   const { cart, update, remove } = useCart();
   const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [applied, setApplied] = useState(null); // { code, discount_amount, new_total, type, value }
+  const [codeErr, setCodeErr] = useState("");
+  const [validating, setValidating] = useState(false);
   const navigate = useNavigate();
+
+  const subtotal = cart.total;
+  const shipping = subtotal >= 50 ? 0 : (subtotal > 0 ? 5 : 0);
+  const discountAmt = applied?.discount_amount || 0;
+  const finalTotal = Math.max(0, subtotal + shipping - discountAmt);
+
+  const applyCode = async () => {
+    setCodeErr("");
+    if (!codeInput.trim()) return;
+    setValidating(true);
+    try {
+      const { data } = await api.post("/discount/validate", { code: codeInput.trim(), subtotal });
+      setApplied(data);
+      toast.success(`Atlaide piemērota: ${data.code}`);
+    } catch (e) {
+      setCodeErr(e.response?.data?.detail || "Nederīgs kods");
+      setApplied(null);
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const removeCode = () => {
+    setApplied(null);
+    setCodeInput("");
+  };
 
   const checkout = async () => {
     if (!user || user === false) {
@@ -21,6 +51,7 @@ export default function Cart() {
     try {
       const { data } = await api.post("/payments/checkout", {
         origin_url: window.location.origin,
+        discount_code: applied?.code,
       });
       window.location.href = data.url;
     } catch (e) {
@@ -50,7 +81,7 @@ export default function Cart() {
                   <img src={it.product.image_url} alt={it.product.name} className="w-full h-full object-cover" />
                 </Link>
                 <div className="flex-1 min-w-0">
-                  <div className="label-eyebrow">{it.product.category}</div>
+                  <div className="label-eyebrow">{it.product.brand || it.product.category}</div>
                   <div className="font-display font-bold text-base sm:text-lg leading-tight truncate">{it.product.name}</div>
                   <div className="text-sm text-neutral-600 mt-1">€{it.product.price.toFixed(2)}</div>
                 </div>
@@ -72,13 +103,56 @@ export default function Cart() {
           <aside className="lg:col-span-1">
             <div className="border border-black/10 p-6 sticky top-24">
               <div className="font-display font-bold text-xl">Kopsavilkums</div>
-              <div className="mt-6 space-y-3 text-sm">
-                <div className="flex justify-between"><span>Starpsumma</span><span>€{cart.total.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span>Piegāde</span><span>{cart.total >= 50 ? "Bezmaksas" : "€5.00"}</span></div>
+
+              {/* Discount code */}
+              <div className="mt-5">
+                <label className="text-xs uppercase tracking-wider font-medium flex items-center gap-1.5">
+                  <Tag size={12} weight="duotone" /> Atlaides kods
+                </label>
+                {applied ? (
+                  <div className="mt-2 flex items-center justify-between bg-green-50 border border-green-200 px-3 py-2 text-sm" data-testid="applied-code">
+                    <div className="flex items-center gap-2 text-green-700">
+                      <CheckCircle size={14} weight="fill" /> <strong>{applied.code}</strong> piemērots
+                    </div>
+                    <button onClick={removeCode} className="hover:text-red-500" data-testid="remove-code-btn">
+                      <X size={14} weight="bold" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={codeInput}
+                      onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                      placeholder="VEIKALS10"
+                      className="shadcn-input text-sm flex-1"
+                      data-testid="discount-code-input"
+                    />
+                    <button
+                      onClick={applyCode}
+                      disabled={validating || !codeInput.trim()}
+                      className="px-4 bg-black text-white text-xs uppercase tracking-wider disabled:opacity-50"
+                      data-testid="apply-code-btn"
+                    >
+                      {validating ? "..." : "Piemērot"}
+                    </button>
+                  </div>
+                )}
+                {codeErr && <div className="mt-2 text-red-500 text-xs" data-testid="code-error">{codeErr}</div>}
+              </div>
+
+              <div className="mt-5 pt-5 border-t border-black/10 space-y-3 text-sm">
+                <div className="flex justify-between"><span>Starpsumma</span><span data-testid="subtotal">€{subtotal.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span>Piegāde</span><span>{shipping === 0 ? "Bezmaksas" : `€${shipping.toFixed(2)}`}</span></div>
+                {applied && (
+                  <div className="flex justify-between text-green-600" data-testid="discount-row">
+                    <span>Atlaide ({applied.code})</span>
+                    <span>−€{discountAmt.toFixed(2)}</span>
+                  </div>
+                )}
               </div>
               <div className="mt-4 pt-4 border-t border-black/10 flex justify-between font-display font-bold text-lg">
                 <span>Kopā</span>
-                <span data-testid="cart-total">€{(cart.total + (cart.total >= 50 ? 0 : (cart.total > 0 ? 5 : 0))).toFixed(2)}</span>
+                <span data-testid="cart-total">€{finalTotal.toFixed(2)}</span>
               </div>
               <button
                 onClick={checkout}
