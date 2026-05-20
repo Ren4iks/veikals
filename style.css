@@ -1,0 +1,39 @@
+body {
+  font-family: Arial;
+  margin: 0;
+  text-align: center;
+  background: #f4f4f4;
+}
+
+header {
+  background: black;
+  color: white;
+  padding: 15px;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.products {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: white;
+  padding: 15px;
+  width: 150px;
+  border-radius: 10px;
+}
+
+button {
+  padding: 8px;
+  background: black;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
