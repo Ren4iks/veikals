@@ -46,3 +46,21 @@ See /app/memory/test_credentials.md
 - Split server.py into routers
 - Product reviews & ratings
 - Discount codes
+
+## Phase 2 (2026-05-20)
+- ✅ Atlaižu kodi (Discount codes): percentage + fixed types, CRUD admin UI, validation endpoint, applied in cart + checkout (server-side discount math)
+- ✅ Seeded codes: VEIKALS10 (-10%), IPHONE50 (-€50, min €500), WELCOME (-€5, min €20)
+- ✅ Promo baneris sākumlapā (PromoBanner.jsx) — kods kopēšanai uz clipboard
+- ✅ Piegādātāji/Ražotāji (suppliers/brand) per produkts — admin UI lauki, parādīti produktu lapā un admin tabulā
+- ✅ Automātiska piegādātāja paziņošana (MOCKED — logged + persisted to db.supplier_notifications, no real email yet) pēc apmaksas
+- ✅ Admin AI Bots (GPT-5.2) ar reālā laika kontekstu (apmaksāto pasūtījumu skaits, aktīvie kodi, jaunākie pasūtījumi) — atsevišķs /api/admin/chat endpoint
+- ✅ Admin Vadības Panelis ar 4 cilnēm: Produkti / Atlaides / Pasūtījumi / AI Bots
+- ✅ Pasūtījumu statusa pārvaldība: pending → paid → shipped → delivered / cancelled
+
+## Backend Tests: 48/48 passing (Phase 1 + Phase 2)
+
+## P1 Backlog
+- Reālā e-pasta integrācija (Resend/SendGrid) supplier_notifications vietā mock
+- Reālā Stripe atslēga + Apple Pay/Google Pay/PayPal aktivizēšana panelī
+- Bankas pārskaitījuma rēķins (PDF + IBAN)
+- Discount used_count increment pārvietot uz payment_status=paid vietā no checkout init
