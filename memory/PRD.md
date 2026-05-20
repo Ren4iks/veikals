@@ -64,3 +64,25 @@ See /app/memory/test_credentials.md
 - Reālā Stripe atslēga + Apple Pay/Google Pay/PayPal aktivizēšana panelī
 - Bankas pārskaitījuma rēķins (PDF + IBAN)
 - Discount used_count increment pārvietot uz payment_status=paid vietā no checkout init
+
+## Phase 3 (2026-05-20)
+- ✅ Telegram bot integrācija (httpx → Bot API sendMessage, HTML format)
+- ✅ Twilio WhatsApp integrācija (twilio sync SDK + asyncio.run_in_executor)
+- ✅ Graceful no-op kad atslēgas nav iestatītas — visi paziņojumi atgriež `{sent: false, reason: ...}` bez 500 kļūdām
+- ✅ Admin UI cilne "Paziņojumi" ar:
+  - Statusa pārskatu (TOKENS / CHAT ID / SAŅĒMĒJS / IESLĒGTS badges)
+  - Iestatījumu formu (paroles maskētas pēc saglabāšanas, "Show/hide" toggle)
+  - Test sūtīšanas pogām (Telegram / WhatsApp / Abi)
+  - Paziņojumu žurnālu (jaunākie 100 ar TG/WA statusu badge)
+- ✅ Saglabāšana DB (`notification_settings` doc `id="global"`) ar `.env` fallback
+- ✅ Iebūvēts automātiskā piegādātāja paziņošana: pēc `payment_status=paid` tiek nosūtīts Telegram + WhatsApp (sagrupēts pa piegādātāju), log saglabāts `supplier_notifications`
+- ✅ Default WhatsApp saņēmējs: `whatsapp:+37125522773` (no lietotāja)
+- ✅ Bug fix: novērsts duplicated `_notify_suppliers_for_order` loops (sūtīja 2× ziņas)
+
+## Backend Tests: 62/62 PASSED
+
+## How user adds real credentials later:
+1. Atveriet Admin → Paziņojumi
+2. Telegram: izveidojiet botu pie @BotFather, ielīmējiet token + chat_id
+3. WhatsApp: pierakstieties twilio.com, no Console paņemiet SID + Auth Token; sandbox-ā saņēmējam jānosūta "join <code>" uz +14155238886
+4. Saglabāt — pēc tam katrs apmaksāts pasūtījums automātiski sūta paziņojumus

@@ -641,43 +641,6 @@ async def _notify_suppliers_for_order(order: dict):
             "status": "delivered" if (tg_result.get("sent") or wa_result.get("sent")) else "logged_only",
         })
 
-    """Group order items by supplier and send Telegram + WhatsApp notifications.
-    Persist outcome to db.supplier_notifications."""
-    by_supplier: Dict[str, list] = {}
-    for it in order.get("items", []):
-        p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
-        if not p:
-            continue
-        key = p.get("supplier_email") or "internal"
-        by_supplier.setdefault(key, {"supplier_name": p.get("supplier_name") or "Internal", "items": []})
-        by_supplier[key]["items"].append({"product": p["name"], "quantity": it["quantity"]})
-
-    for sup_email, info in by_supplier.items():
-        msg_text = format_order_message(order, info["items"], info["supplier_name"])
-        # Send to admin channels (Telegram + WhatsApp). In future could route per-supplier.
-        tg_result = await send_telegram(db, msg_text)
-        wa_result = await send_whatsapp(db, msg_text)
-
-        logger.info(
-            "[SUPPLIER NOTIFY] To=%s Order=%s TG=%s WA=%s",
-            sup_email, order.get("id"),
-            "OK" if tg_result.get("sent") else f"SKIP({tg_result.get('reason','')})",
-            "OK" if wa_result.get("sent") else f"SKIP({wa_result.get('reason','')})",
-        )
-        await db.supplier_notifications.insert_one({
-            "id": str(uuid.uuid4()),
-            "order_id": order.get("id"),
-            "supplier_email": sup_email,
-            "supplier_name": info["supplier_name"],
-            "items": info["items"],
-            "shipping_address": order.get("shipping_address") or {},
-            "user_email": order.get("user_email"),
-            "telegram": tg_result,
-            "whatsapp": wa_result,
-            "sent_at": datetime.now(timezone.utc).isoformat(),
-            "status": "delivered" if (tg_result.get("sent") or wa_result.get("sent")) else "logged_only",
-        })
-
 @api.post("/payments/checkout")
 async def create_checkout(body: CheckoutRequest, request: Request, user: dict = Depends(get_current_user)):
     cart = await db.carts.find_one({"user_id": user["id"]}, {"_id": 0})
