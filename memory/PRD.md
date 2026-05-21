@@ -86,3 +86,22 @@ See /app/memory/test_credentials.md
 2. Telegram: izveidojiet botu pie @BotFather, ielīmējiet token + chat_id
 3. WhatsApp: pierakstieties twilio.com, no Console paņemiet SID + Auth Token; sandbox-ā saņēmējam jānosūta "join <code>" uz +14155238886
 4. Saglabāt — pēc tam katrs apmaksāts pasūtījums automātiski sūta paziņojumus
+
+## Phase 4 (2026-05-20)
+- ✅ Sortimenta paplašināšana: 6 → 18 produkti (MacBook Pro M4 Max, AirPods Pro 3, Apple Watch Ultra 3, Sony WH-1000XM6, oversized T-krekls, crewneck džemperis, cargo bikses, denim jaka, ādas maks, 3 jaunas smaržas) ar zīmoliem un piegādātājiem
+- ✅ Pasūtījuma izsekošana: publiska lapa `/track` ar order_id + email validāciju, 4-soļu vizuāla taimlīna (Gaida → Apmaksāts → Nosūtīts → Piegādāts), saites no Footer un Payment Success lapas
+- ✅ Mārketinga kampaņas modulis:
+  - Backend: campaigns CRUD + POST /send uz Telegram + Facebook + Instagram
+  - Marketing.py: post_telegram (sendPhoto/sendMessage), post_facebook (Page feed/photos), post_instagram (2-step container + publish), visi graceful no-op
+  - Admin UI: jauna "Mārketings" cilne ar kanālu statusu, kampaņas izveidi (title, caption, image_url, channel multi-select), publicēšanu un žurnālu
+- ✅ Meta integrācija notifikācijās: pievienoti lauki Page ID, Page Access Token, IG User ID, IG Access Token (maskēti pēc saglabāšanas)
+- ✅ Telegram channel_id atsevišķi no chat_id (kanāls reklāmām, chat pasūtījumiem)
+- ✅ User-provided e-pasts pierakstīts: jakovicsrenars13@gmail.com (gaida konta izveidi)
+
+## Backend Tests: 23/23 NEW PHASE 4 PASSED | 84/85 combined (1 known test isolation issue, not a bug)
+
+## Lietotājam pievienot reāliem ziņojumiem:
+- **Telegram bots**: @BotFather → /newbot → token → Admin → Paziņojumi → ielīmēt
+- **Telegram kanāls reklāmām**: izveidot kanālu, pievienot botu kā admin → ielīmēt channel ID (@manskanals vai -100...)
+- **Twilio WhatsApp**: twilio.com Console → Account SID + Auth Token + Sandbox opt-in no +37125522773
+- **Facebook + Instagram**: developers.facebook.com → izveidot Meta App → Page ID + long-lived Page Access Token; IG Business saistīts ar Page → IG User ID + IG Access Token (atļaujas: pages_manage_posts + instagram_content_publish)
