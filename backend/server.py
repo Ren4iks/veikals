@@ -453,7 +453,7 @@ async def toggle_wishlist(body: WishlistRequest, user: dict = Depends(get_curren
         ids.remove(body.product_id)
         action = "removed"
     else:
-        # Validate product exists
+        # Validate product exists only when adding
         if not await db.products.find_one({"id": body.product_id}):
             raise HTTPException(404, "Produkts nav atrasts")
         ids.append(body.product_id)

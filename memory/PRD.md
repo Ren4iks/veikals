@@ -105,3 +105,19 @@ See /app/memory/test_credentials.md
 - **Telegram kanāls reklāmām**: izveidot kanālu, pievienot botu kā admin → ielīmēt channel ID (@manskanals vai -100...)
 - **Twilio WhatsApp**: twilio.com Console → Account SID + Auth Token + Sandbox opt-in no +37125522773
 - **Facebook + Instagram**: developers.facebook.com → izveidot Meta App → Page ID + long-lived Page Access Token; IG Business saistīts ar Page → IG User ID + IG Access Token (atļaujas: pages_manage_posts + instagram_content_publish)
+
+## Phase 5 — Polish (2026-05-25)
+- ✅ Produktu meklēšana — `?search=` query (case-insensitive name + description + brand)
+- ✅ Šķirošana: `?sort=price_asc | price_desc | name | newest`
+- ✅ Cenu diapazona filtri: `?min_price=` un `?max_price=`
+- ✅ Vēlmju saraksts (Wishlist): /api/wishlist GET + /toggle, ar Heart pogu uz katra produkta, atsevišķa /wishlist lapa
+- ✅ Krājuma automātiska samazināšana, kad pasūtījums apmaksāts (no overselling)
+- ✅ Piegādes adreses solis pirms Stripe maksājuma (vārds, tālrunis, adrese, pilsēta, indekss, valsts, piezīmes)
+- ✅ Meklēšanas overlay navbar-ā
+- ✅ Mobile menu (hamburger)
+- ✅ 404 lapa (NotFound)
+- ✅ Loading skeletons shop lapā
+- ✅ "Tikai N atlikuši" un "Izpārdots" badges uz produktu kartēm
+- ✅ SEO meta tagi (OG tags, Latviešu valoda, description+keywords)
+
+## Backend Tests: 109/109 PASSED (all phases combined)
