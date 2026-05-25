@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import { WishlistProvider } from "@/context/WishlistContext";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ChatbotWidget from "@/components/ChatbotWidget";
@@ -17,33 +18,39 @@ import Profile from "@/pages/Profile";
 import Admin from "@/pages/Admin";
 import PaymentSuccess from "@/pages/PaymentSuccess";
 import TrackOrder from "@/pages/TrackOrder";
+import Wishlist from "@/pages/Wishlist";
+import NotFound from "@/pages/NotFound";
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
         <AuthProvider>
-          <CartProvider>
-            <Navbar />
-            <main className="min-h-[60vh]">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/shop" element={<Shop />} />
-                <Route path="/product/:id" element={<ProductDetail />} />
-                <Route path="/cart" element={<Cart />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/admin" element={<Admin />} />
-                <Route path="/payment-success" element={<PaymentSuccess />} />
-                <Route path="/track" element={<TrackOrder />} />
-                <Route path="/track/:id" element={<TrackOrder />} />
-              </Routes>
-            </main>
-            <Footer />
-            <ChatbotWidget />
-            <Toaster position="top-center" richColors />
-          </CartProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <Navbar />
+              <main className="min-h-[60vh]">
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/shop" element={<Shop />} />
+                  <Route path="/product/:id" element={<ProductDetail />} />
+                  <Route path="/cart" element={<Cart />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/wishlist" element={<Wishlist />} />
+                  <Route path="/admin" element={<Admin />} />
+                  <Route path="/payment-success" element={<PaymentSuccess />} />
+                  <Route path="/track" element={<TrackOrder />} />
+                  <Route path="/track/:id" element={<TrackOrder />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </main>
+              <Footer />
+              <ChatbotWidget />
+              <Toaster position="top-center" richColors />
+            </CartProvider>
+          </WishlistProvider>
         </AuthProvider>
       </BrowserRouter>
     </div>

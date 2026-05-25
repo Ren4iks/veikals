@@ -294,13 +294,41 @@ async def me(user: dict = Depends(get_current_user)):
 # ============ PRODUCT ROUTES ============
 
 @api.get("/products")
-async def list_products(category: Optional[str] = None, featured: Optional[bool] = None):
+async def list_products(
+    category: Optional[str] = None,
+    featured: Optional[bool] = None,
+    search: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    sort: Optional[str] = None,  # "price_asc" | "price_desc" | "newest" | "name"
+):
     q: dict = {}
     if category:
         q["category"] = category
     if featured is not None:
         q["featured"] = featured
-    items = await db.products.find(q, {"_id": 0}).to_list(500)
+    if search:
+        s = search.strip()
+        q["$or"] = [
+            {"name": {"$regex": s, "$options": "i"}},
+            {"description": {"$regex": s, "$options": "i"}},
+            {"brand": {"$regex": s, "$options": "i"}},
+        ]
+    if min_price is not None or max_price is not None:
+        pr = {}
+        if min_price is not None: pr["$gte"] = min_price
+        if max_price is not None: pr["$lte"] = max_price
+        q["price"] = pr
+    cursor = db.products.find(q, {"_id": 0})
+    sort_map = {
+        "price_asc": ("price", 1),
+        "price_desc": ("price", -1),
+        "name": ("name", 1),
+        "newest": ("created_at", -1),
+    }
+    if sort and sort in sort_map:
+        cursor = cursor.sort(*sort_map[sort])
+    items = await cursor.to_list(500)
     return items
 
 @api.get("/products/{product_id}")
@@ -402,6 +430,40 @@ async def cart_remove(product_id: str, user: dict = Depends(get_current_user)):
 async def cart_clear(user: dict = Depends(get_current_user)):
     await db.carts.update_one({"user_id": user["id"]}, {"$set": {"items": []}}, upsert=True)
     return {"ok": True}
+
+# ============ WISHLIST ============
+
+class WishlistRequest(BaseModel):
+    product_id: str
+
+@api.get("/wishlist")
+async def get_wishlist(user: dict = Depends(get_current_user)):
+    doc = await db.wishlists.find_one({"user_id": user["id"]}, {"_id": 0}) or {"product_ids": []}
+    ids = doc.get("product_ids", [])
+    if not ids:
+        return {"items": []}
+    products = await db.products.find({"id": {"$in": ids}}, {"_id": 0}).to_list(200)
+    return {"items": products}
+
+@api.post("/wishlist/toggle")
+async def toggle_wishlist(body: WishlistRequest, user: dict = Depends(get_current_user)):
+    doc = await db.wishlists.find_one({"user_id": user["id"]}, {"_id": 0}) or {"product_ids": []}
+    ids = doc.get("product_ids", [])
+    if body.product_id in ids:
+        ids.remove(body.product_id)
+        action = "removed"
+    else:
+        # Validate product exists
+        if not await db.products.find_one({"id": body.product_id}):
+            raise HTTPException(404, "Produkts nav atrasts")
+        ids.append(body.product_id)
+        action = "added"
+    await db.wishlists.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"product_ids": ids}},
+        upsert=True,
+    )
+    return {"action": action, "in_wishlist": action == "added", "count": len(ids)}
 
 # ============ ORDERS ============
 
@@ -894,9 +956,15 @@ async def payment_status(session_id: str, request: Request):
             user_id = existing.get("user_id")
             if user_id:
                 await db.carts.update_one({"user_id": user_id}, {"$set": {"items": []}}, upsert=True)
-            # Notify suppliers (logged - in production would email via Resend/SendGrid)
+            # Notify suppliers + decrement stock
             order = await db.orders.find_one({"session_id": session_id}, {"_id": 0})
             if order:
+                # Stock decrement (atomic-ish per item)
+                for it in order.get("items", []):
+                    await db.products.update_one(
+                        {"id": it["product_id"]},
+                        {"$inc": {"stock": -int(it.get("quantity", 0))}},
+                    )
                 await _notify_suppliers_for_order(order)
 
     return {

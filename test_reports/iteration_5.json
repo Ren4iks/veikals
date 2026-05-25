@@ -1,0 +1,42 @@
+{
+  "summary": "Phase 5 backend testing complete. Added 24 new tests in /app/backend/tests/test_phase5.py covering: product search (name/description/brand, case-insensitive), sort (price_asc/price_desc/name/invalid fallback), price range filters (min/max/combined), combined filters (category+sort+max_price), wishlist endpoints (auth required, empty initial, idempotent add/remove toggle with full product details, 404 on adding unknown product), checkout with shipping_address persistence, stock-decrement code path (code-read verification because Stripe sandbox does not auto-complete payment in test), and catalog sanity (18 products, brands, categories). Full regression: 109/109 tests PASS — including the previously flaky test_status_shape (Phase 4 noted DB pollution, was reset by main agent prior to this run). No critical or minor backend issues found in Phase 5 scope.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/wishlist/toggle", "issue": "When removing a product that is not actually in the user's wishlist (i.e. user toggles an unknown id), endpoint returns 404 due to product-existence check on the add branch — but semantically a 'remove' on something not present should be a no-op. Current behavior is documented in test_wishlist_toggle_unknown_remove_is_noop. Not blocking; consider returning 200 with action='removed', in_wishlist=false, count=unchanged when the id is not in the wishlist (or only validate product existence after determining add vs. remove)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase5.py",
+    "/app/backend/tests/test_phase4.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/phase5_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional, minor) Wishlist toggle: skip product-existence check on remove branch to make remove-of-unknown a true no-op (or document current 404 behavior in API docs).",
+    "(Pre-existing, not Phase 5) server.py is 1353 lines — recommend splitting into routers as the file grows past the 700-line guideline.",
+    "(Pre-existing) Cart endpoints (PUT /cart/update, DELETE /cart/{pid}) have no null-cart guard — `cart.get('items')` on None will throw. Not Phase 5 scope but still open from iteration 4."
+  ],
+  "critical_code_review_comments": [
+    "Product search uses MongoDB $regex with $options 'i' across name/description/brand — correct and case-insensitive, but unindexed regex on a 500-doc cap is fine; if catalog grows, add a text index.",
+    "Sort: sort_map whitelist prevents arbitrary-field sort injection; unknown sort key silently ignored (verified). Good defensive default.",
+    "Wishlist storage uses {user_id, product_ids[]} doc — simple and correct. GET hydrates with full product details via $in query (single round-trip).",
+    "Stock decrement: server.py:962-967 — for each item in paid order, db.products.update_one({id}, {$inc: {stock: -quantity}}). This sits inside the s.payment_status == 'paid' branch of /payments/status/{session_id}. Code path verified; e2e test not feasible because Stripe sandbox does not auto-complete a real card charge in CI. Webhook path (/api/webhook/stripe) also exists but is separate from /payments/status polling — recommend a single shared helper to avoid drift if/when webhook is wired to also decrement stock.",
+    "shipping_address: CheckoutRequest accepts Optional[Dict[str,str]] and order document stores it as {} default. Verified persistence end-to-end via /api/orders GET after checkout.",
+    "Wishlist toggle returns shape {action, in_wishlist, count} matching problem statement requirements — idempotent, JSON-serializable, no _id leak."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase5.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 Phase 5; 109/109 combined regression)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "admin@veikals.lv / Admin123! (from /app/memory/test_credentials.md); fresh TEST_p5_<uuid>@example.com customers registered per module",
+  "seed_data_creation": "Each test module creates a fresh TEST_-prefixed customer via /api/auth/register. Checkout test creates one cart item + one pending order (real Stripe session via emergentintegrations). Wishlist toggles are net-zero (add+remove same id). No persistent DB pollution introduced by Phase 5 tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 5 endpoints verified: GET /api/products with search/sort/min_price/max_price/combined filters; GET+POST /api/wishlist (auth-gated, idempotent toggle); /api/payments/checkout persists shipping_address into order doc. Stock-decrement is in /api/payments/status/{session_id} paid branch (server.py:962-967) and cannot be triggered without a real paid Stripe session — verified by code read. The notification_settings DB pollution issue from iteration 4 is resolved (main agent reset the doc). To run: pytest /app/backend/tests/ -v --tb=short. The wishlist toggle remove-on-unknown-id returns 404 (documented quirk — see minor issue)."
+}
